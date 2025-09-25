@@ -14,7 +14,131 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      job_categories: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          skills_keywords: string[] | null
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          skills_keywords?: string[] | null
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          skills_keywords?: string[] | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          company_name: string | null
+          created_at: string
+          department: string | null
+          email: string
+          full_name: string | null
+          id: string
+          role: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_name?: string | null
+          created_at?: string
+          department?: string | null
+          email: string
+          full_name?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_name?: string | null
+          created_at?: string
+          department?: string | null
+          email?: string
+          full_name?: string | null
+          id?: string
+          role?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      resumes: {
+        Row: {
+          candidate_email: string | null
+          candidate_name: string | null
+          confidence_score: number | null
+          created_at: string
+          education_level: string | null
+          experience_years: number | null
+          file_name: string
+          file_url: string | null
+          id: string
+          parsed_skills: string[] | null
+          phone_number: string | null
+          predicted_category: string | null
+          raw_text: string | null
+          status: string | null
+          updated_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          candidate_email?: string | null
+          candidate_name?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          education_level?: string | null
+          experience_years?: number | null
+          file_name: string
+          file_url?: string | null
+          id?: string
+          parsed_skills?: string[] | null
+          phone_number?: string | null
+          predicted_category?: string | null
+          raw_text?: string | null
+          status?: string | null
+          updated_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          candidate_email?: string | null
+          candidate_name?: string | null
+          confidence_score?: number | null
+          created_at?: string
+          education_level?: string | null
+          experience_years?: number | null
+          file_name?: string
+          file_url?: string | null
+          id?: string
+          parsed_skills?: string[] | null
+          phone_number?: string | null
+          predicted_category?: string | null
+          raw_text?: string | null
+          status?: string | null
+          updated_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "resumes_predicted_category_fkey"
+            columns: ["predicted_category"]
+            isOneToOne: false
+            referencedRelation: "job_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

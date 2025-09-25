@@ -77,15 +77,15 @@ const Index = () => {
               
               <div className="flex flex-col sm:flex-row gap-4">
                 <Button asChild size="lg" className="text-lg px-8">
-                  <Link to="/upload">
+                  <Link to="/auth">
                     <Upload className="h-5 w-5 mr-2" />
-                    Upload Resume
+                    Get Started
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="lg" className="text-lg px-8">
-                  <Link to="/dashboard">
+                  <Link to="/contact">
                     <BarChart3 className="h-5 w-5 mr-2" />
-                    View Dashboard
+                    Schedule Demo
                   </Link>
                 </Button>
               </div>
