@@ -172,6 +172,10 @@ serve(async (req) => {
       .from('job_categories')
       .select('id, name, skills_keywords');
 
+    const availableCategoriesText = Array.isArray(categories) && categories.length > 0
+      ? categories.map((cat: any) => `${cat.name}: ${(cat.skills_keywords || []).join(', ') || 'General'}`).join('; ')
+      : 'General';
+
     // Classify the resume into a job category using OpenAI
     const classificationResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -186,7 +190,7 @@ serve(async (req) => {
             role: 'system',
             content: `You are an expert job classifier. Based on the candidate's skills, classify them into the most appropriate job category.
             
-            Available categories: ${categories?.map(cat => `${cat.name}: ${cat.skills_keywords?.join(', ') || 'General'}`).join('; ')}
+            Available categories: ${availableCategoriesText}
             
             Return only the category name that best matches the candidate's skills. If no good match, return "General".`
           },
@@ -253,7 +257,7 @@ serve(async (req) => {
       experience_years: extractedInfo.experience_years,
       education_level: extractedInfo.education_level,
       predicted_category: matchedCategory?.id || null,
-      confidence_score: Math.round(confidenceScore * 100),
+      confidence_score: Number(confidenceScore.toFixed(2)),
       status: 'processed'
     };
 
