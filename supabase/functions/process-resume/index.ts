@@ -109,17 +109,35 @@ serve(async (req) => {
     });
 
     console.log('OpenAI extraction response status:', extractionResponse.status);
-    
+    // Fallback handling for quota errors or any non-2xx status
+    let useFallbackExtraction = false;
+    let fallbackRawContent = '';
     if (!extractionResponse.ok) {
       const errorText = await extractionResponse.text();
       console.error('OpenAI API error:', errorText);
-      throw new Error(`OpenAI API error: ${extractionResponse.status} - ${errorText}`);
+      useFallbackExtraction = true;
+      const fallbackObj = {
+        candidate_name: fileName.replace(/\.(pdf|docx|txt)$/i, '').replace(/[_-]/g, ' '),
+        candidate_email: null,
+        phone_number: null,
+        parsed_skills: [],
+        experience_years: null,
+        education_level: null,
+        summary: `Resume file: ${fileName}`
+      };
+      fallbackRawContent = JSON.stringify(fallbackObj);
     }
 
-    const extractionData = await extractionResponse.json();
-    let rawContent = extractionData.choices[0].message.content;
+    let extractionData: any = null;
+    let rawContent = '';
+    if (!useFallbackExtraction) {
+      extractionData = await extractionResponse.json();
+      rawContent = extractionData.choices?.[0]?.message?.content || '';
+    } else {
+      rawContent = fallbackRawContent;
+    }
     console.log('Raw OpenAI response:', rawContent);
-    
+
     // Clean up the response to ensure it's valid JSON
     rawContent = rawContent.trim();
     if (rawContent.startsWith('```json')) {
@@ -182,8 +200,28 @@ serve(async (req) => {
       }),
     });
 
-    const classificationData = await classificationResponse.json();
-    const predictedCategoryName = classificationData.choices[0].message.content.trim();
+    let predictedCategoryName = 'General';
+    if (classificationResponse.ok) {
+      const classificationData = await classificationResponse.json();
+      predictedCategoryName = classificationData?.choices?.[0]?.message?.content?.trim() || 'General';
+    } else {
+      console.error('OpenAI classification failed with status:', classificationResponse.status);
+      // Local heuristic classification based on skills vs category keywords
+      const skills = (extractedInfo?.parsed_skills || []).map((s: string) => s.toLowerCase());
+      if (Array.isArray(categories) && categories.length > 0) {
+        let bestName = 'General';
+        let bestScore = 0;
+        for (const cat of categories) {
+          const keywords = (cat.skills_keywords || []).map((k: string) => k.toLowerCase());
+          const score = keywords.reduce((acc: number, k: string) => acc + (skills.some((s: string) => s.includes(k) || k.includes(s)) ? 1 : 0), 0);
+          if (score > bestScore) {
+            bestScore = score;
+            bestName = cat.name;
+          }
+        }
+        predictedCategoryName = bestName;
+      }
+    }
     
     // Find the category ID
     const matchedCategory = categories?.find(cat => 
