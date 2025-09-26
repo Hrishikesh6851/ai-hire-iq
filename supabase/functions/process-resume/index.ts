@@ -35,13 +35,22 @@ serve(async (req) => {
     console.log('Processing resume:', fileName);
 
     // Download and extract text from the resume file
+    console.log('Downloading file from:', fileUrl);
     const fileResponse = await fetch(fileUrl);
     if (!fileResponse.ok) {
-      throw new Error('Failed to download resume file');
+      console.error('File download failed:', fileResponse.status, fileResponse.statusText);
+      throw new Error(`Failed to download resume file: ${fileResponse.status} ${fileResponse.statusText}`);
     }
 
+    console.log('File downloaded successfully, content type:', fileResponse.headers.get('content-type'));
     const arrayBuffer = await fileResponse.arrayBuffer();
-    const fileContent = new TextDecoder().decode(arrayBuffer);
+    
+    // For now, we'll use a simple approach - in production, you'd want proper PDF parsing
+    // Convert binary to base64 then send to OpenAI for text extraction
+    const base64Content = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const fileExtension = fileName.split('.').pop()?.toLowerCase();
+    
+    console.log('File size:', arrayBuffer.byteLength, 'bytes, Extension:', fileExtension);
     
     // Extract text content using OpenAI
     const extractionResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -55,9 +64,10 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `You are an expert resume parser. Extract the following information from the resume text and return it as valid JSON:
+            content: `You are an expert resume parser. I will provide you with a resume file (it may be PDF, DOCX, or TXT format). 
+            Your task is to extract key information and return it as valid JSON:
             {
-              "candidate_name": "Full name",
+              "candidate_name": "Full name of candidate",
               "candidate_email": "email@example.com",
               "phone_number": "+1234567890",
               "parsed_skills": ["skill1", "skill2", "skill3"],
@@ -70,11 +80,14 @@ serve(async (req) => {
             - Extract skills as an array of strings (technologies, tools, programming languages, frameworks, etc.)
             - Calculate experience_years as total years of professional experience
             - Use null for missing information
-            - Be precise and extract only what's clearly stated`
+            - Be precise and extract only what's clearly stated
+            - If the file content is not readable or corrupted, return null values`
           },
           {
             role: 'user',
-            content: `Please parse this resume text and extract the information: ${fileContent}`
+            content: `Please parse this resume file. File extension: ${fileExtension}. 
+            
+            The file content is base64 encoded: ${base64Content.substring(0, 50000)}`
           }
         ],
         max_tokens: 1000,
@@ -82,8 +95,33 @@ serve(async (req) => {
       }),
     });
 
+    console.log('OpenAI extraction response status:', extractionResponse.status);
+    
+    if (!extractionResponse.ok) {
+      const errorText = await extractionResponse.text();
+      console.error('OpenAI API error:', errorText);
+      throw new Error(`OpenAI API error: ${extractionResponse.status}`);
+    }
+
     const extractionData = await extractionResponse.json();
-    const extractedInfo = JSON.parse(extractionData.choices[0].message.content);
+    console.log('OpenAI response:', extractionData.choices[0].message.content);
+    
+    let extractedInfo;
+    try {
+      extractedInfo = JSON.parse(extractionData.choices[0].message.content);
+    } catch (parseError) {
+      console.error('Failed to parse OpenAI response as JSON:', parseError);
+      // Fallback with basic info
+      extractedInfo = {
+        candidate_name: null,
+        candidate_email: null,
+        phone_number: null,
+        parsed_skills: [],
+        experience_years: null,
+        education_level: null,
+        summary: null
+      };
+    }
     console.log('Extracted info:', extractedInfo);
 
     // Get job categories for classification
@@ -144,7 +182,7 @@ serve(async (req) => {
       file_name: fileName,
       file_url: fileUrl,
       uploaded_by: uploadedBy,
-      raw_text: fileContent,
+      raw_text: `Processed ${fileExtension} file - ${arrayBuffer.byteLength} bytes`,
       candidate_name: extractedInfo.candidate_name,
       candidate_email: extractedInfo.candidate_email,
       phone_number: extractedInfo.phone_number,
@@ -155,6 +193,8 @@ serve(async (req) => {
       confidence_score: Math.round(confidenceScore * 100),
       status: 'processed'
     };
+
+    console.log('Saving resume data:', { ...resumeData, raw_text: 'truncated for logging' });
 
     const { data: resume, error: insertError } = await supabase
       .from('resumes')
