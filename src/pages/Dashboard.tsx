@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Navigation from "@/components/Navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,74 +6,103 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Search, Filter, Download, Eye, User, Award, Code, Briefcase } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
-// Mock data for demonstration
-const mockCandidates = [
-  {
-    id: 1,
-    name: "Sarah Johnson",
-    skills: ["React", "JavaScript", "Python", "Machine Learning"],
-    experience: "Senior (5+ years)",
-    category: "Software Engineer",
-    matchScore: 94,
-    email: "sarah.johnson@email.com",
-    phone: "+1 (555) 123-4567"
-  },
-  {
-    id: 2,
-    name: "Michael Chen",
-    skills: ["AWS", "Docker", "Kubernetes", "DevOps"],
-    experience: "Mid-level (3-5 years)",
-    category: "DevOps Engineer",
-    matchScore: 89,
-    email: "michael.chen@email.com",
-    phone: "+1 (555) 234-5678"
-  },
-  {
-    id: 3,
-    name: "Emily Rodriguez",
-    skills: ["UI/UX Design", "Figma", "Adobe Creative Suite", "User Research"],
-    experience: "Mid-level (3-5 years)",
-    category: "UI/UX Designer",
-    matchScore: 87,
-    email: "emily.rodriguez@email.com",
-    phone: "+1 (555) 345-6789"
-  },
-  {
-    id: 4,
-    name: "David Kim",
-    skills: ["Data Science", "TensorFlow", "SQL", "Statistics"],
-    experience: "Senior (5+ years)",
-    category: "Data Scientist",
-    matchScore: 92,
-    email: "david.kim@email.com",
-    phone: "+1 (555) 456-7890"
-  },
-  {
-    id: 5,
-    name: "Lisa Thompson",
-    skills: ["Product Management", "Agile", "Analytics", "Strategy"],
-    experience: "Senior (5+ years)",
-    category: "Product Manager",
-    matchScore: 85,
-    email: "lisa.thompson@email.com",
-    phone: "+1 (555) 567-8901"
-  }
-];
+interface Candidate {
+  id: string;
+  candidate_name: string | null;
+  candidate_email: string | null;
+  phone_number: string | null;
+  parsed_skills: string[];
+  experience_years: number | null;
+  education_level: string | null;
+  predicted_category: string | null;
+  confidence_score: number | null;
+  category_name?: string;
+}
 
 const Dashboard = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [experienceFilter, setExperienceFilter] = useState("all");
-  
-  const categories = ["Software Engineer", "DevOps Engineer", "UI/UX Designer", "Data Scientist", "Product Manager"];
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetchCandidates();
+  }, []);
+
+  const fetchCandidates = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch resumes with job category names
+      const { data: resumes, error } = await supabase
+        .from('resumes')
+        .select(`
+          *,
+          job_categories (
+            name
+          )
+        `)
+        .eq('status', 'processed')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      // Transform data and extract categories
+      const transformedCandidates = resumes?.map(resume => ({
+        id: resume.id,
+        candidate_name: resume.candidate_name,
+        candidate_email: resume.candidate_email,
+        phone_number: resume.phone_number,
+        parsed_skills: resume.parsed_skills || [],
+        experience_years: resume.experience_years,
+        education_level: resume.education_level,
+        predicted_category: resume.predicted_category,
+        confidence_score: resume.confidence_score,
+        category_name: resume.job_categories?.name || 'General'
+      })) || [];
+
+      setCandidates(transformedCandidates);
+      
+      // Extract unique categories
+      const uniqueCategories = [...new Set(transformedCandidates.map(c => c.category_name).filter(Boolean))];
+      setCategories(uniqueCategories);
+
+    } catch (error) {
+      console.error('Error fetching candidates:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load candidates. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getExperienceLevel = (years: number | null) => {
+    if (!years) return "Not specified";
+    if (years <= 2) return "Junior (0-2 years)";
+    if (years <= 5) return "Mid-level (3-5 years)";
+    return "Senior (5+ years)";
+  };
+
   const experienceLevels = ["Junior (0-2 years)", "Mid-level (3-5 years)", "Senior (5+ years)"];
   
-  const filteredCandidates = mockCandidates.filter(candidate => {
-    const matchesSearch = candidate.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         candidate.skills.some(skill => skill.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesCategory = categoryFilter === "all" || candidate.category === categoryFilter;
-    const matchesExperience = experienceFilter === "all" || candidate.experience === experienceFilter;
+  const filteredCandidates = candidates.filter(candidate => {
+    const name = candidate.candidate_name || '';
+    const skills = candidate.parsed_skills || [];
+    const matchesSearch = name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         skills.some(skill => skill.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesCategory = categoryFilter === "all" || candidate.category_name === categoryFilter;
+    const matchesExperience = experienceFilter === "all" || getExperienceLevel(candidate.experience_years) === experienceFilter;
     
     return matchesSearch && matchesCategory && matchesExperience;
   });
@@ -95,7 +124,7 @@ const Dashboard = () => {
             <div>
               <h1 className="text-4xl font-bold mb-2">Candidate Dashboard</h1>
               <p className="text-xl text-muted-foreground">
-                Review and manage shortlisted candidates
+                Review and manage AI-processed candidates
               </p>
             </div>
             <div className="flex space-x-3">
@@ -117,7 +146,7 @@ const Dashboard = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Total Candidates</p>
-                    <p className="text-3xl font-bold">{mockCandidates.length}</p>
+                    <p className="text-3xl font-bold">{candidates.length}</p>
                   </div>
                   <User className="h-8 w-8 text-primary" />
                 </div>
@@ -130,7 +159,7 @@ const Dashboard = () => {
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">High Match (90%+)</p>
                     <p className="text-3xl font-bold text-success">
-                      {mockCandidates.filter(c => c.matchScore >= 90).length}
+                      {candidates.filter(c => (c.confidence_score || 0) >= 90).length}
                     </p>
                   </div>
                   <Award className="h-8 w-8 text-success" />
@@ -156,7 +185,9 @@ const Dashboard = () => {
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Avg Match Score</p>
                     <p className="text-3xl font-bold">
-                      {Math.round(mockCandidates.reduce((acc, c) => acc + c.matchScore, 0) / mockCandidates.length)}%
+                      {candidates.length > 0 
+                        ? Math.round(candidates.reduce((acc, c) => acc + (c.confidence_score || 0), 0) / candidates.length)
+                        : 0}%
                     </p>
                   </div>
                   <Briefcase className="h-8 w-8 text-primary" />
@@ -213,79 +244,93 @@ const Dashboard = () => {
           {/* Results */}
           <Card>
             <CardHeader>
-              <CardTitle>Shortlisted Candidates ({filteredCandidates.length})</CardTitle>
-              <CardDescription>Candidates ranked by AI matching algorithm</CardDescription>
+              <CardTitle>AI-Processed Candidates ({filteredCandidates.length})</CardTitle>
+              <CardDescription>Candidates analyzed with NLP resume scanning</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {filteredCandidates.map((candidate) => (
-                  <div
-                    key={candidate.id}
-                    className="border rounded-lg p-6 hover:bg-card-hover transition-colors card-hover"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-3">
-                          <h3 className="text-lg font-semibold">{candidate.name}</h3>
-                          <Badge className={`${getScoreColor(candidate.matchScore)} font-bold`}>
-                            {candidate.matchScore}% Match
-                          </Badge>
+              {loading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                  <p className="text-muted-foreground">Loading candidates...</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredCandidates.map((candidate) => (
+                    <div
+                      key={candidate.id}
+                      className="border rounded-lg p-6 hover:bg-card-hover transition-colors card-hover"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3 mb-3">
+                            <h3 className="text-lg font-semibold">{candidate.candidate_name || 'Unknown Candidate'}</h3>
+                            <Badge className={`${getScoreColor(candidate.confidence_score || 0)} font-bold`}>
+                              {candidate.confidence_score || 0}% Match
+                            </Badge>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                              <p className="text-sm font-medium text-muted-foreground mb-1">Job Category</p>
+                              <p className="font-medium">{candidate.category_name || 'General'}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-muted-foreground mb-1">Experience Level</p>
+                              <p className="font-medium">{getExperienceLevel(candidate.experience_years)}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-muted-foreground mb-1">Email</p>
+                              <p className="text-sm">{candidate.candidate_email || 'Not provided'}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-muted-foreground mb-1">Phone</p>
+                              <p className="text-sm">{candidate.phone_number || 'Not provided'}</p>
+                            </div>
+                          </div>
+                          
+                          <div>
+                            <p className="text-sm font-medium text-muted-foreground mb-2">Key Skills</p>
+                            <div className="flex flex-wrap gap-2">
+                              {candidate.parsed_skills && candidate.parsed_skills.length > 0 ? (
+                                candidate.parsed_skills.map((skill, index) => (
+                                  <Badge key={index} variant="secondary">
+                                    {skill}
+                                  </Badge>
+                                ))
+                              ) : (
+                                <p className="text-sm text-muted-foreground">No skills extracted</p>
+                              )}
+                            </div>
+                          </div>
                         </div>
                         
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground mb-1">Job Category</p>
-                            <p className="font-medium">{candidate.category}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground mb-1">Experience Level</p>
-                            <p className="font-medium">{candidate.experience}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground mb-1">Email</p>
-                            <p className="text-sm">{candidate.email}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-muted-foreground mb-1">Phone</p>
-                            <p className="text-sm">{candidate.phone}</p>
-                          </div>
+                        <div className="flex space-x-2 ml-4">
+                          <Button variant="outline" size="sm">
+                            <Eye className="h-4 w-4 mr-1" />
+                            View Resume
+                          </Button>
+                          <Button size="sm">
+                            Contact
+                          </Button>
                         </div>
-                        
-                        <div>
-                          <p className="text-sm font-medium text-muted-foreground mb-2">Key Skills</p>
-                          <div className="flex flex-wrap gap-2">
-                            {candidate.skills.map((skill, index) => (
-                              <Badge key={index} variant="secondary">
-                                {skill}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex space-x-2 ml-4">
-                        <Button variant="outline" size="sm">
-                          <Eye className="h-4 w-4 mr-1" />
-                          View Resume
-                        </Button>
-                        <Button size="sm">
-                          Contact
-                        </Button>
                       </div>
                     </div>
-                  </div>
-                ))}
-                
-                {filteredCandidates.length === 0 && (
-                  <div className="text-center py-12">
-                    <User className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No candidates found</h3>
-                    <p className="text-muted-foreground">
-                      Try adjusting your search terms or filters to find more candidates.
-                    </p>
-                  </div>
-                )}
-              </div>
+                  ))}
+                  
+                  {filteredCandidates.length === 0 && !loading && (
+                    <div className="text-center py-12">
+                      <User className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No candidates found</h3>
+                      <p className="text-muted-foreground">
+                        {candidates.length === 0 
+                          ? "Upload and process some resumes to see candidates here."
+                          : "Try adjusting your search terms or filters to find more candidates."
+                        }
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

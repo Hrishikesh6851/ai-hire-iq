@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Upload, FileText, CheckCircle, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
 
 const UploadPage = () => {
   const [isDragging, setIsDragging] = useState(false);
@@ -82,22 +83,92 @@ const UploadPage = () => {
     setIsUploading(true);
     setUploadProgress(0);
     
-    // Simulate upload progress
-    const interval = setInterval(() => {
-      setUploadProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsUploading(false);
-          setUploadComplete(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('You must be logged in to upload resumes');
+      }
+
+      let processedCount = 0;
+      const totalFiles = files.length;
+
+      for (const file of files) {
+        try {
+          // Upload file to Supabase Storage
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${user.id}/${Date.now()}-${file.name}`;
+          
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('resumes')
+            .upload(fileName, file);
+
+          if (uploadError) {
+            console.error('Upload error:', uploadError);
+            throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`);
+          }
+
+          // Get the file URL
+          const { data: { publicUrl } } = supabase.storage
+            .from('resumes')
+            .getPublicUrl(fileName);
+
+          // Process the resume with AI
+          const { data: processResult, error: processError } = await supabase.functions
+            .invoke('process-resume', {
+              body: {
+                fileUrl: publicUrl,
+                fileName: file.name,
+                uploadedBy: user.id
+              }
+            });
+
+          if (processError) {
+            console.error('Processing error:', processError);
+            throw new Error(`Failed to process ${file.name}: ${processError.message}`);
+          }
+
+          if (!processResult.success) {
+            throw new Error(`Processing failed for ${file.name}: ${processResult.error}`);
+          }
+
+          processedCount++;
+          setUploadProgress((processedCount / totalFiles) * 100);
+          
+        } catch (fileError) {
+          console.error(`Error processing ${file.name}:`, fileError);
           toast({
-            title: "Upload successful!",
-            description: `${files.length} resume(s) processed successfully.`,
+            title: "Processing error",
+            description: `${file.name}: ${fileError.message}`,
+            variant: "destructive",
           });
-          return 100;
         }
-        return prev + 10;
+      }
+
+      if (processedCount > 0) {
+        setUploadComplete(true);
+        toast({
+          title: "Processing complete!",
+          description: `${processedCount} of ${totalFiles} resume(s) processed successfully.`,
+        });
+        
+        // Clear files after successful upload
+        setTimeout(() => {
+          setFiles([]);
+          setUploadComplete(false);
+          setUploadProgress(0);
+        }, 3000);
+      }
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast({
+        title: "Upload failed",
+        description: error.message,
+        variant: "destructive",
       });
-    }, 200);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const removeFile = (index: number) => {
